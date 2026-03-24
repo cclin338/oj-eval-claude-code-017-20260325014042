@@ -113,21 +113,81 @@ struct Train {
 
 // Seat availability tracking
 struct SeatManager {
-    int seats[MAX_TRAINS][MAX_DAYS][MAX_STATIONS - 1];  // seats[train][day][segment]
+    int*** seats;  // Dynamic 3D array: seats[train][day][segment]
+    bool* initialized;  // Track which trains are initialized
+    int* stationNums;  // Store station count for each train
+    int* seatNums;  // Store seat count for each train
 
     SeatManager() {
-        memset(seats, 0, sizeof(seats));
+        seats = new int**[MAX_TRAINS];
+        initialized = new bool[MAX_TRAINS];
+        stationNums = new int[MAX_TRAINS];
+        seatNums = new int[MAX_TRAINS];
+        for (int i = 0; i < MAX_TRAINS; i++) {
+            seats[i] = nullptr;
+            initialized[i] = false;
+            stationNums[i] = 0;
+            seatNums[i] = 0;
+        }
+    }
+
+    ~SeatManager() {
+        for (int i = 0; i < MAX_TRAINS; i++) {
+            if (seats[i] != nullptr) {
+                for (int j = 0; j < MAX_DAYS; j++) {
+                    if (seats[i][j] != nullptr) {
+                        delete[] seats[i][j];
+                    }
+                }
+                delete[] seats[i];
+            }
+        }
+        delete[] seats;
+        delete[] initialized;
+        delete[] stationNums;
+        delete[] seatNums;
     }
 
     void initTrain(int trainIdx, int stationNum, int seatNum) {
+        if (seats[trainIdx] != nullptr) {
+            // Already initialized, clear it
+            for (int j = 0; j < MAX_DAYS; j++) {
+                if (seats[trainIdx][j] != nullptr) {
+                    delete[] seats[trainIdx][j];
+                }
+            }
+            delete[] seats[trainIdx];
+        }
+
+        seats[trainIdx] = new int*[MAX_DAYS];
         for (int day = 0; day < MAX_DAYS; day++) {
+            seats[trainIdx][day] = new int[stationNum - 1];
             for (int i = 0; i < stationNum - 1; i++) {
                 seats[trainIdx][day][i] = seatNum;
             }
         }
+        initialized[trainIdx] = true;
+        stationNums[trainIdx] = stationNum;
+        seatNums[trainIdx] = seatNum;
+    }
+
+    void clearTrain(int trainIdx) {
+        if (seats[trainIdx] != nullptr) {
+            for (int j = 0; j < MAX_DAYS; j++) {
+                if (seats[trainIdx][j] != nullptr) {
+                    delete[] seats[trainIdx][j];
+                }
+            }
+            delete[] seats[trainIdx];
+            seats[trainIdx] = nullptr;
+        }
+        initialized[trainIdx] = false;
+        stationNums[trainIdx] = 0;
+        seatNums[trainIdx] = 0;
     }
 
     int querySeat(int trainIdx, int day, int startStation, int endStation, int stationNum) {
+        if (!initialized[trainIdx]) return 0;
         int minSeat = seats[trainIdx][day][startStation];
         for (int i = startStation; i < endStation; i++) {
             if (seats[trainIdx][day][i] < minSeat) {
@@ -138,6 +198,7 @@ struct SeatManager {
     }
 
     bool buyTickets(int trainIdx, int day, int startStation, int endStation, int num, int stationNum) {
+        if (!initialized[trainIdx]) return false;
         // Check if enough seats
         for (int i = startStation; i < endStation; i++) {
             if (seats[trainIdx][day][i] < num) {
@@ -152,6 +213,7 @@ struct SeatManager {
     }
 
     void refundTickets(int trainIdx, int day, int startStation, int endStation, int num, int stationNum) {
+        if (!initialized[trainIdx]) return;
         for (int i = startStation; i < endStation; i++) {
             seats[trainIdx][day][i] += num;
         }
@@ -658,6 +720,7 @@ int delete_train(const string& params) {
     if (idx == -1) return -1;
     if (trains[idx].released) return -1;
 
+    seatManager.clearTrain(idx);
     trains[idx].exists = false;
     return 0;
 }
@@ -1041,6 +1104,7 @@ int clean() {
     userCount = 0;
 
     for (int i = 0; i < trainCount; i++) {
+        seatManager.clearTrain(i);
         trains[i].exists = false;
         trains[i].released = false;
     }
@@ -1057,9 +1121,6 @@ int clean() {
     pendingOrderCount = 0;
 
     currentTimestamp = 0;
-
-    // Clear seat manager
-    memset(seatManager.seats, 0, sizeof(seatManager.seats));
 
     return 0;
 }
