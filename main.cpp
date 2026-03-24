@@ -117,24 +117,30 @@ struct SeatManager {
     bool* initialized;  // Track which trains are initialized
     int* stationNums;  // Store station count for each train
     int* seatNums;  // Store seat count for each train
+    int* dayOffsets;  // Store day offset for each train (to map actual day to index)
+    int* numDaysArray;  // Store number of days allocated for each train
 
     SeatManager() {
         seats = new int**[MAX_TRAINS];
         initialized = new bool[MAX_TRAINS];
         stationNums = new int[MAX_TRAINS];
         seatNums = new int[MAX_TRAINS];
+        dayOffsets = new int[MAX_TRAINS];
+        numDaysArray = new int[MAX_TRAINS];
         for (int i = 0; i < MAX_TRAINS; i++) {
             seats[i] = nullptr;
             initialized[i] = false;
             stationNums[i] = 0;
             seatNums[i] = 0;
+            dayOffsets[i] = 0;
+            numDaysArray[i] = 0;
         }
     }
 
     ~SeatManager() {
         for (int i = 0; i < MAX_TRAINS; i++) {
             if (seats[i] != nullptr) {
-                for (int j = 0; j < MAX_DAYS; j++) {
+                for (int j = 0; j < numDaysArray[i]; j++) {
                     if (seats[i][j] != nullptr) {
                         delete[] seats[i][j];
                     }
@@ -146,12 +152,14 @@ struct SeatManager {
         delete[] initialized;
         delete[] stationNums;
         delete[] seatNums;
+        delete[] dayOffsets;
+        delete[] numDaysArray;
     }
 
-    void initTrain(int trainIdx, int stationNum, int seatNum) {
+    void initTrain(int trainIdx, int stationNum, int seatNum, int saleDateStart, int saleDateEnd) {
         if (seats[trainIdx] != nullptr) {
             // Already initialized, clear it
-            for (int j = 0; j < MAX_DAYS; j++) {
+            for (int j = 0; j < numDaysArray[trainIdx]; j++) {
                 if (seats[trainIdx][j] != nullptr) {
                     delete[] seats[trainIdx][j];
                 }
@@ -159,8 +167,9 @@ struct SeatManager {
             delete[] seats[trainIdx];
         }
 
-        seats[trainIdx] = new int*[MAX_DAYS];
-        for (int day = 0; day < MAX_DAYS; day++) {
+        int numDays = saleDateEnd - saleDateStart + 1;
+        seats[trainIdx] = new int*[numDays];
+        for (int day = 0; day < numDays; day++) {
             seats[trainIdx][day] = new int[stationNum - 1];
             for (int i = 0; i < stationNum - 1; i++) {
                 seats[trainIdx][day][i] = seatNum;
@@ -169,11 +178,13 @@ struct SeatManager {
         initialized[trainIdx] = true;
         stationNums[trainIdx] = stationNum;
         seatNums[trainIdx] = seatNum;
+        dayOffsets[trainIdx] = saleDateStart;
+        numDaysArray[trainIdx] = numDays;
     }
 
     void clearTrain(int trainIdx) {
         if (seats[trainIdx] != nullptr) {
-            for (int j = 0; j < MAX_DAYS; j++) {
+            for (int j = 0; j < numDaysArray[trainIdx]; j++) {
                 if (seats[trainIdx][j] != nullptr) {
                     delete[] seats[trainIdx][j];
                 }
@@ -184,14 +195,19 @@ struct SeatManager {
         initialized[trainIdx] = false;
         stationNums[trainIdx] = 0;
         seatNums[trainIdx] = 0;
+        dayOffsets[trainIdx] = 0;
+        numDaysArray[trainIdx] = 0;
     }
 
     int querySeat(int trainIdx, int day, int startStation, int endStation, int stationNum) {
         if (!initialized[trainIdx]) return 0;
-        int minSeat = seats[trainIdx][day][startStation];
+        int dayIdx = day - dayOffsets[trainIdx];
+        if (dayIdx < 0 || dayIdx >= numDaysArray[trainIdx]) return 0;
+        if (seats[trainIdx][dayIdx] == nullptr) return 0;
+        int minSeat = seats[trainIdx][dayIdx][startStation];
         for (int i = startStation; i < endStation; i++) {
-            if (seats[trainIdx][day][i] < minSeat) {
-                minSeat = seats[trainIdx][day][i];
+            if (seats[trainIdx][dayIdx][i] < minSeat) {
+                minSeat = seats[trainIdx][dayIdx][i];
             }
         }
         return minSeat;
@@ -199,23 +215,29 @@ struct SeatManager {
 
     bool buyTickets(int trainIdx, int day, int startStation, int endStation, int num, int stationNum) {
         if (!initialized[trainIdx]) return false;
+        int dayIdx = day - dayOffsets[trainIdx];
+        if (dayIdx < 0 || dayIdx >= numDaysArray[trainIdx]) return false;
+        if (seats[trainIdx][dayIdx] == nullptr) return false;
         // Check if enough seats
         for (int i = startStation; i < endStation; i++) {
-            if (seats[trainIdx][day][i] < num) {
+            if (seats[trainIdx][dayIdx][i] < num) {
                 return false;
             }
         }
         // Decrease seats
         for (int i = startStation; i < endStation; i++) {
-            seats[trainIdx][day][i] -= num;
+            seats[trainIdx][dayIdx][i] -= num;
         }
         return true;
     }
 
     void refundTickets(int trainIdx, int day, int startStation, int endStation, int num, int stationNum) {
         if (!initialized[trainIdx]) return;
+        int dayIdx = day - dayOffsets[trainIdx];
+        if (dayIdx < 0 || dayIdx >= numDaysArray[trainIdx]) return;
+        if (seats[trainIdx][dayIdx] == nullptr) return;
         for (int i = startStation; i < endStation; i++) {
-            seats[trainIdx][day][i] += num;
+            seats[trainIdx][dayIdx][i] += num;
         }
     }
 };
@@ -636,7 +658,7 @@ int add_train(const string& params) {
     trains[trainCount].saleDateEnd = dateToDay(saleDate_str + next + 1);
 
     // Initialize seats
-    seatManager.initTrain(trainCount, stationNum, seatNum);
+    seatManager.initTrain(trainCount, stationNum, seatNum, trains[trainCount].saleDateStart, trains[trainCount].saleDateEnd);
 
     trainCount++;
     return 0;
