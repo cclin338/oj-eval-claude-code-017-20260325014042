@@ -13,6 +13,7 @@ const int MAX_STATIONS = 100;
 const int MAX_ORDERS = 100000;
 const int MAX_PENDING_ORDERS = 100000;
 const int MAX_DAYS = 92;  // June, July, August 2021
+const int MAX_STATION_NAME_LEN = 31;
 
 // Date utilities
 int dateToDay(const string& date) {
@@ -78,12 +79,12 @@ struct User {
 struct Train {
     char trainID[21];
     int stationNum;
-    char stations[MAX_STATIONS][31];  // Chinese characters
+    char** stations;  // Dynamic array of station names
     int seatNum;
-    int prices[MAX_STATIONS - 1];
+    int* prices;  // Dynamic array
     int startTime;  // in minutes
-    int travelTimes[MAX_STATIONS - 1];
-    int stopoverTimes[MAX_STATIONS - 2];
+    int* travelTimes;  // Dynamic array
+    int* stopoverTimes;  // Dynamic array
     int saleDateStart;  // day number
     int saleDateEnd;    // day number
     char type;
@@ -93,20 +94,49 @@ struct Train {
     Train() {
         trainID[0] = '\0';
         stationNum = 0;
+        stations = nullptr;
         seatNum = 0;
         startTime = 0;
         type = ' ';
         released = false;
         exists = false;
-        for (int i = 0; i < MAX_STATIONS; i++) {
+        prices = nullptr;
+        travelTimes = nullptr;
+        stopoverTimes = nullptr;
+    }
+
+    ~Train() {
+        if (stations != nullptr) {
+            for (int i = 0; i < stationNum; i++) {
+                delete[] stations[i];
+            }
+            delete[] stations;
+        }
+        if (prices != nullptr) delete[] prices;
+        if (travelTimes != nullptr) delete[] travelTimes;
+        if (stopoverTimes != nullptr) delete[] stopoverTimes;
+    }
+
+    void initArrays(int numStations) {
+        stationNum = numStations;
+        stations = new char*[numStations];
+        for (int i = 0; i < numStations; i++) {
+            stations[i] = new char[MAX_STATION_NAME_LEN];
             stations[i][0] = '\0';
         }
-        for (int i = 0; i < MAX_STATIONS - 1; i++) {
+        prices = new int[numStations - 1];
+        travelTimes = new int[numStations - 1];
+        for (int i = 0; i < numStations - 1; i++) {
             prices[i] = 0;
             travelTimes[i] = 0;
         }
-        for (int i = 0; i < MAX_STATIONS - 2; i++) {
-            stopoverTimes[i] = 0;
+        if (numStations > 2) {
+            stopoverTimes = new int[numStations - 2];
+            for (int i = 0; i < numStations - 2; i++) {
+                stopoverTimes[i] = 0;
+            }
+        } else {
+            stopoverTimes = nullptr;
         }
     }
 };
@@ -603,9 +633,9 @@ int add_train(const string& params) {
     int stationNum = atoi(stationNum_str);
     int seatNum = atoi(seatNum_str);
 
+    trains[trainCount].initArrays(stationNum);
     trains[trainCount].exists = true;
     strcpy(trains[trainCount].trainID, trainID);
-    trains[trainCount].stationNum = stationNum;
     trains[trainCount].seatNum = seatNum;
     trains[trainCount].startTime = timeToMinutes(startTime);
     trains[trainCount].type = type[0];
